@@ -16,11 +16,6 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
-permissions:
-  contents: read
-  # Organization GHCR
-  packages: read
-
 env:
   PYTHON_VERSION: "3.13"
 
@@ -31,10 +26,6 @@ jobs:
       || github.event_name == 'workflow_dispatch'
     name: Build base
     runs-on: ubuntu-24.04
-    permissions:
-      # Organization GHCR
-      packages: write
-
     steps:
       - if: github.repository_owner == 'searxng'
         name: Checkout
@@ -73,14 +64,6 @@ jobs:
           brew install apko
 
       - if: github.repository_owner == 'searxng' && steps.cache-apko.outputs.cache-hit != 'true'
-        name: Login to GHCR
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1  # v3.5.0
-        with:
-          registry: "ghcr.io"
-          username: "${{ github.repository_owner }}"
-          password: "${{ secrets.GITHUB_TOKEN }}"
-
-      - if: github.repository_owner == 'searxng' && steps.cache-apko.outputs.cache-hit != 'true'
         name: Build
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
@@ -111,19 +94,6 @@ jobs:
           - arch: amd64
             os: ubuntu-24.04
             emulation: false
-          - arch: arm64
-            os: ubuntu-24.04-arm
-            emulation: false
-          - arch: armv7
-            os: ubuntu-24.04-arm
-            emulation: true
-
-    permissions:
-      # Organization GHCR
-      packages: write
-      # Clean key cache step
-      actions: write
-
     outputs:
       docker_tag: ${{ steps.build.outputs.docker_tag }}
       git_url: ${{ steps.build.outputs.git_url }}
@@ -167,19 +137,22 @@ jobs:
       - if: ${{ matrix.emulation }}
         name: Setup QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392  # v3.6.0
-
-      - name: Login to GHCR
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1  # v3.5.0
-        with:
-          registry: "ghcr.io"
-          username: "${{ github.repository_owner }}"
-          password: "${{ secrets.GITHUB_TOKEN }}"
-
+        
       - name: Build
         id: build
         env:
           OVERRIDE_ARCH: "${{ matrix.arch }}"
         run: make podman.build
+        
+      - name: Save Docker image as tarball
+        run: |
+          docker save searxng:latest -o searxng-amd64.tar
+      
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: searxng-amd64-image
+          path: searxng-amd64.tar
 
       - if: always()
         name: Save cache container mounts
@@ -201,13 +174,6 @@ jobs:
           - arch: amd64
             os: ubuntu-24.04
             emulation: false
-          - arch: arm64
-            os: ubuntu-24.04-arm
-            emulation: false
-          - arch: armv7
-            os: ubuntu-24.04-arm
-            emulation: true
-
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -217,14 +183,7 @@ jobs:
       - if: ${{ matrix.emulation }}
         name: Setup QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392  # v3.6.0
-
-      - name: Login to GHCR
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1  # v3.5.0
-        with:
-          registry: "ghcr.io"
-          username: "${{ github.repository_owner }}"
-          password: "${{ secrets.GITHUB_TOKEN }}"
-
+  
       - name: Test
         env:
           OVERRIDE_ARCH: "${{ matrix.arch }}"
@@ -239,29 +198,11 @@ jobs:
       - build
       - test
 
-    permissions:
-      # Organization GHCR
-      packages: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           persist-credentials: "false"
-
-      - name: Login to GHCR
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1  # v3.5.0
-        with:
-          registry: "ghcr.io"
-          username: "${{ github.repository_owner }}"
-          password: "${{ secrets.GITHUB_TOKEN }}"
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1  # v3.5.0
-        with:
-          registry: "docker.io"
-          username: "${{ secrets.DOCKERHUB_USERNAME }}"
-          password: "${{ secrets.DOCKERHUB_TOKEN }}"
 
       - name: Release
         env:
